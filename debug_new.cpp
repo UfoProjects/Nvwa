@@ -344,6 +344,13 @@ FILE* new_output_fp = stderr;
  */
 const char* new_progname = _DEBUG_NEW_PROGNAME;
 
+/**
+ * Pointer to the callback used to print backtrace / call stack of a memory
+ * problem. NULL value causes default backtrace printing implementation to be
+ * used.
+ */
+backtrace_print_callback_pointer backtrace_print_callback = _NULLPTR;
+
 #if _DEBUG_NEW_USE_ADDR2LINE
 /**
  * Tries printing the position information from an instruction address.
@@ -483,12 +490,23 @@ static void print_position(const void* ptr, int line)
 
 /**
  * Prints stack backtrace pointed to by backtrace pointer.
-*/
+ * When backtrace_print_callback is != NULL it is used for printing
+ * the backtrace items. Default implementation of call stack printing is very
+ * spartan - only stack frame pointers are printed - but even that output is
+ * still useful. Just do address lookup in LLDB etc.
+ */
 
 static void print_backtrace(void** backtrace)
 {
-    for (size_t i = 0; backtrace[i] != _NULLPTR; ++i)
-        fprintf(new_output_fp, "%p\n", backtrace[i]);
+    if (NVWA::backtrace_print_callback == _NULLPTR)
+    {
+        for (size_t i = 0; backtrace[i] != _NULLPTR; ++i)
+            fprintf(new_output_fp, "%p\n", backtrace[i]);
+    }
+    else
+    {
+        NVWA::backtrace_print_callback(new_output_fp, backtrace);
+    }
 }
 
 #endif
@@ -803,7 +821,18 @@ int check_mem_corruption()
             print_position(ptr->file, ptr->line);
         else
             print_position(ptr->addr, ptr->line);
+
         fprintf(new_output_fp, ")\n");
+
+#if _DEBUG_NEW_REMEMBER_STACK_TRACE == 1 || \
+    _DEBUG_NEW_REMEMBER_STACK_TRACE == 2
+        if (ptr->backtrace != _NULLPTR)
+        {
+            fprintf(new_output_fp, "Backtrace:\n");
+            print_backtrace(ptr->backtrace);
+        }
+#endif
+
         ++corrupt_cnt;
     }
     fprintf(new_output_fp, "*** Checking for memory corruption: %d FOUND\n",

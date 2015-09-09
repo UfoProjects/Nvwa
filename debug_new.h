@@ -93,15 +93,23 @@ NVWA_NAMESPACE_BEGIN
 #define _DEBUG_NEW_TYPE 1
 #endif
 
+/**
+ * Backtrace printing callback signature. Backtrace is always NULL-terminated
+ * so length is not passed.
+ */
+
+typedef void (*backtrace_print_callback_pointer)(FILE* output, void** backtrace);
+
 /* Prototypes */
 int check_leaks();
 int check_mem_corruption();
 
 /* Control variables */
-extern bool new_autocheck_flag; // default to true: call check_leaks() on exit
-extern bool new_verbose_flag;   // default to false: no verbose information
-extern FILE* new_output_fp;     // default to stderr: output to console
-extern const char* new_progname;// default to NULL; should be assigned argv[0]
+extern bool new_autocheck_flag;                                     // default to true: call check_leaks() on exit
+extern bool new_verbose_flag;                                       // default to false: no verbose information
+extern FILE* new_output_fp;                                         // default to stderr: output to console
+extern const char* new_progname;                                    // default to NULL; should be assigned argv[0]
+extern backtrace_print_callback_pointer backtrace_print_callback;   // default to NULL;
 
 /**
  * @def DEBUG_NEW
