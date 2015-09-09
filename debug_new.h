@@ -104,12 +104,26 @@ typedef void (*backtrace_print_callback_pointer)(FILE* output, void** backtrace)
 int check_leaks();
 int check_mem_corruption();
 
+/**
+ * file, address and backtrace might be NULL depending on library configuration
+ * platform and amount of runtime information available. backtrace is array
+ * of stack frame pointers that can be interpreted by platform specific
+ * symbolication tools.
+ *
+ * line can be 0 when line number info is not available at runtime
+ *
+ * @returns true if allocation should be included in filtered results
+ */
+
+typedef bool (*allocation_filter_callback)(char const* file, int line, void* address, void** backtrace);
+
 /* Control variables */
-extern bool new_autocheck_flag;                                     // default to true: call check_leaks() on exit
-extern bool new_verbose_flag;                                       // default to false: no verbose information
-extern FILE* new_output_fp;                                         // default to stderr: output to console
-extern const char* new_progname;                                    // default to NULL; should be assigned argv[0]
-extern backtrace_print_callback_pointer backtrace_print_callback;   // default to NULL;
+extern bool new_autocheck_flag;                                         // default to true: call check_leaks() on exit
+extern bool new_verbose_flag;                                           // default to false: no verbose information
+extern FILE* new_output_fp;                                             // default to stderr: output to console
+extern const char* new_progname;                                        // default to NULL; should be assigned argv[0]
+extern allocation_filter_callback leak_check_whitelist_filter_callback; // default to NULL;
+extern backtrace_print_callback_pointer backtrace_print_callback;       // default to NULL;
 
 /**
  * @def DEBUG_NEW

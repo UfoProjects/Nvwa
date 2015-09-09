@@ -47,6 +47,7 @@
 #if NVWA_UNIX
 #include <alloca.h>             // alloca
 #endif
+
 #if NVWA_WIN32
 #include <malloc.h>             // alloca
 #endif
@@ -345,6 +346,13 @@ FILE* new_output_fp = stderr;
 const char* new_progname = _DEBUG_NEW_PROGNAME;
 
 /**
+ * Pointer to callback used to filter out false-positives from leak report.
+ * Function pointed should return true when leak is whitelisted and false
+ * otherwise.
+ */
+allocation_filter_callback leak_check_whitelist_filter_callback = _NULLPTR;
+
+/**
  * Pointer to the callback used to print backtrace / call stack of a memory
  * problem. NULL value causes default backtrace printing implementation to be
  * used.
@@ -510,6 +518,31 @@ static void print_backtrace(void** backtrace)
 }
 
 #endif
+
+/**
+ * Checks whether leak should be ignored. This function might be really slow
+ * when whitelisting filter logic is complex and backtraces are long.
+ */
+static bool is_leak_whitelisted(new_ptr_list_t* new_ptr_list)
+{
+    if (leak_check_whitelist_filter_callback == _NULLPTR)
+    {
+        return false;
+    }
+
+    auto file = new_ptr_list->line != 0 ? new_ptr_list->file : _NULLPTR;
+    auto line = new_ptr_list->line;
+    auto address = new_ptr_list->line == 0 ? new_ptr_list->addr : _NULLPTR;
+
+#if _DEBUG_NEW_REMEMBER_STACK_TRACE == 1 || _DEBUG_NEW_REMEMBER_STACK_TRACE == 2
+    // Fill in temporary, helper variables.
+    auto backtrace = new_ptr_list->backtrace;
+#else
+    void** backtrace = _NULLPTR;
+#endif
+
+    return leak_check_whitelist_filter_callback(file, line, address, backtrace);
+}
 
 #if _DEBUG_NEW_TAILCHECK
 /**
@@ -726,9 +759,11 @@ static void free_pointer(void* usr_ptr, void* addr, bool is_array)
 int check_leaks()
 {
     int leak_cnt = 0;
+    int whitelisted_leak_cnt = 0;
     fast_mutex_autolock lock_ptr(new_ptr_lock);
     fast_mutex_autolock lock_output(new_output_lock);
     new_ptr_list_t* ptr = new_ptr_list.next;
+
     while (ptr != &new_ptr_list)
     {
         const char* const usr_ptr = (char*)ptr + ALIGNED_LIST_ITEM_SIZE;
@@ -747,31 +782,49 @@ int check_leaks()
         }
 #endif
 
-        fprintf(new_output_fp,
-                "Leaked object at %p (size %lu, ",
-                usr_ptr,
-                (unsigned long)ptr->size);
-
-        if (ptr->line != 0)
-            print_position(ptr->file, ptr->line);
+        if (is_leak_whitelisted(ptr))
+        {
+            ++whitelisted_leak_cnt;
+        }
         else
-            print_position(ptr->addr, ptr->line);
+        {
+            fprintf(new_output_fp,
+                    "Leaked object at %p (size %lu, ",
+                    usr_ptr,
+                    (unsigned long)ptr->size);
 
-        fprintf(new_output_fp, ")\n");
+            if (ptr->line != 0)
+                print_position(ptr->file, ptr->line);
+            else
+                print_position(ptr->addr, ptr->line);
+
+            fprintf(new_output_fp, ")\n");
 
 #if _DEBUG_NEW_REMEMBER_STACK_TRACE == 1 || _DEBUG_NEW_REMEMBER_STACK_TRACE == 2
-        if (ptr->backtrace != _NULLPTR)
-        {
-            fprintf(new_output_fp, "Backtrace:\n");
-            print_backtrace(ptr->backtrace);
-        }
+            if (ptr->backtrace != _NULLPTR)
+            {
+                fprintf(new_output_fp, "Backtrace:\n");
+                print_backtrace(ptr->backtrace);
+            }
 #endif
+        }
 
         ptr = ptr->next;
         ++leak_cnt;
     }
+
     if (new_verbose_flag || leak_cnt)
-        fprintf(new_output_fp, "*** %d leaks found\n", leak_cnt);
+    {
+        if (whitelisted_leak_cnt > 0)
+        {
+            fprintf(new_output_fp, "*** %d leaks found (%d whitelisted)\n",
+                leak_cnt, whitelisted_leak_cnt);
+        }
+        else
+        {
+            fprintf(new_output_fp, "*** %d leaks found\n", leak_cnt);
+        }
+    }
 
     return leak_cnt;
 }
